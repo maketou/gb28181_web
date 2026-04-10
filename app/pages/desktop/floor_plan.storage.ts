@@ -58,6 +58,7 @@ export function createDefaultFloorPlanState(): FloorPlanState {
     version: 3,
     walls: [],
     cameras: [],
+    background: null,
     view: {
       x: 120,
       y: 80,
@@ -88,6 +89,14 @@ export function normalizeFloorPlanState(input: unknown): FloorPlanState {
 
   const value = input as Partial<FloorPlanState>;
   const rawView = value.view && typeof value.view === "object" ? value.view : undefined;
+  const rawBg = value.background;
+  let background: FloorPlanState["background"] = null;
+  if (rawBg && typeof rawBg === "object" && typeof (rawBg as { src?: unknown }).src === "string") {
+    const src = String((rawBg as { src: string }).src).trim();
+    if (src.length > 0 && src.length < 2_000_000) {
+      background = { src };
+    }
+  }
 
   return {
     version: 3,
@@ -123,6 +132,7 @@ export function normalizeFloorPlanState(input: unknown): FloorPlanState {
             latestEventScore: camera.latestEventScore ?? null,
           }))
       : [],
+    background,
     view: {
       x: normalizeFiniteNumber(rawView?.x, fallback.view.x),
       y: normalizeFiniteNumber(rawView?.y, fallback.view.y),

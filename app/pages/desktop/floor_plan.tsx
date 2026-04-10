@@ -10,6 +10,8 @@ import {
   ExternalLink,
   Focus,
   Hand,
+  Image as ImageIconLucide,
+  ImagePlus,
   Layers,
   LayoutTemplate,
   Map as MapIcon,
@@ -31,6 +33,7 @@ import {
 import {
   Circle,
   Group,
+  Image as KonvaImage,
   Layer,
   Line,
   Rect,
@@ -80,9 +83,17 @@ import { clearLatestCameraEventCache, getLatestCameraEvent, prefetchLatestEvents
 import { formatTimeAgoFromMs } from "./floor_plan.relative-time";
 import { buildAlertsTo } from "./floor_plan.alerts";
 import { buildFloorPlanExportPayload, parseFloorPlanImportJson } from "./floor_plan.export";
+import {
+  FLOOR_PLAN_SAMPLE_BACKGROUND_SRC,
+  backgroundContainLayout,
+  buildBackgroundFromUserFile,
+  floorPlanBackgroundAcceptAttribute,
+  readImageNaturalSize,
+} from "./floor_plan.background";
 import { buildPlaybackDetailTo } from "./floor_plan.playback";
 import type {
   CameraMarker,
+  FloorPlanBackground,
   FloorPlanState,
   FloorPlanTemplateId,
   FloorWall,
@@ -1242,6 +1253,45 @@ export default function FloorPlanEditor({ onViewModeChange }: FloorPlanEditorPro
     | null
   >(null);
   const pinchRef = useRef<{ startDist: number; startScale: number } | null>(null);
+  const backgroundImageInputRef = useRef<HTMLInputElement>(null);
+  const [backgroundImageEl, setBackgroundImageEl] = useState<HTMLImageElement | null>(null);
+
+  /**
+   * 为什么底图用独立 Image 对象而不是 URL 字符串直绑 Konva：
+   * Konva.Image 需要已解码的 HTMLImageElement；同一 src 在切换文件与撤销时也要重新触发 decode，避免显示上一张的缓存帧。
+   */
+  useEffect(() => {
+    const src = plan.background?.src;
+    if (!src) {
+      setBackgroundImageEl(null);
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (!cancelled) {
+        setBackgroundImageEl(img);
+      }
+    };
+    img.onerror = () => {
+      if (!cancelled) {
+        console.warn("[floor-plan] background image failed to load", src.slice(0, 120));
+        setBackgroundImageEl(null);
+      }
+    };
+    img.src = src;
+    return () => {
+      cancelled = true;
+    };
+  }, [plan.background?.src]);
+
+  const backgroundLayout = useMemo(() => {
+    if (!backgroundImageEl || !plan.background) {
+      return null;
+    }
+    return backgroundContainLayout(backgroundImageEl.naturalWidth, backgroundImageEl.naturalHeight);
+  }, [backgroundImageEl, plan.background]);
 
   useEffect(() => {
     planRef.current = plan;
@@ -1626,6 +1676,57 @@ export default function FloorPlanEditor({ onViewModeChange }: FloorPlanEditorPro
     },
     [replacePlan],
   );
+
+  const applyBackgroundToPlan = useCallback(
+    (background: FloorPlanBackground | null) => {
+      mutatePlan((draft) => {
+        draft.background = background;
+      });
+    },
+    [mutatePlan],
+  );
+
+  const onBackgroundImageFileChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) {
+        return;
+      }
+      try {
+        const bg = await buildBackgroundFromUserFile(file);
+        applyBackgroundToPlan(bg);
+        message.success(t("floor_plan_background_apply_success"));
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        console.warn("[floor-plan] background upload failed", error);
+        if (code === "FILE_TOO_LARGE") {
+          message.error(t("floor_plan_background_file_too_large"));
+        } else if (code === "NOT_IMAGE") {
+          message.error(t("floor_plan_background_not_image"));
+        } else {
+          message.error(t("floor_plan_background_apply_failed"));
+        }
+      }
+    },
+    [applyBackgroundToPlan, t],
+  );
+
+  const useSampleFloorPlanBackground = useCallback(async () => {
+    try {
+      await readImageNaturalSize(FLOOR_PLAN_SAMPLE_BACKGROUND_SRC);
+      applyBackgroundToPlan({ src: FLOOR_PLAN_SAMPLE_BACKGROUND_SRC });
+      message.success(t("floor_plan_background_apply_success"));
+    } catch (error) {
+      console.warn("[floor-plan] sample background failed", error);
+      message.error(t("floor_plan_background_apply_failed"));
+    }
+  }, [applyBackgroundToPlan, t]);
+
+  const clearFloorPlanBackground = useCallback(() => {
+    applyBackgroundToPlan(null);
+    message.success(t("floor_plan_background_cleared"));
+  }, [applyBackgroundToPlan, t]);
 
   const boundChannelIdsKey = useMemo(() => {
     const ids = plan.cameras
@@ -3284,6 +3385,44 @@ export default function FloorPlanEditor({ onViewModeChange }: FloorPlanEditorPro
           </div>
         </div>
 
+        <div className="mb-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-900">
+            <ImageIconLucide className="h-4 w-4" />
+            {t("floor_plan_background_section")}
+          </div>
+          <p className="mb-3 text-xs leading-5 text-gray-500">{t("floor_plan_background_hint")}</p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => backgroundImageInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800"
+            >
+              <ImagePlus className="h-3.5 w-3.5" />
+              {t("floor_plan_background_upload")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void useSampleFloorPlanBackground()}
+              className="rounded-lg bg-white px-3 py-2 text-xs font-medium text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50"
+            >
+              {t("floor_plan_background_use_sample")}
+            </button>
+            <button
+              type="button"
+              disabled={!plan.background}
+              onClick={clearFloorPlanBackground}
+              className="rounded-lg bg-white px-3 py-2 text-xs font-medium text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {t("floor_plan_background_clear")}
+            </button>
+          </div>
+          {plan.background ? (
+            <div className="mt-2 truncate text-[11px] text-gray-400" title={plan.background.src.slice(0, 80)}>
+              {plan.background.src.startsWith("data:") ? t("floor_plan_background_embedded") : plan.background.src}
+            </div>
+          ) : null}
+        </div>
+
         {isEditMode ? (
           <div className="mb-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
             <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-900">
@@ -3532,6 +3671,26 @@ export default function FloorPlanEditor({ onViewModeChange }: FloorPlanEditorPro
             className="hidden"
             onChange={onImportFloorPlanFileChange}
           />
+          <input
+            ref={backgroundImageInputRef}
+            type="file"
+            accept={floorPlanBackgroundAcceptAttribute()}
+            className="hidden"
+            onChange={onBackgroundImageFileChange}
+          />
+          {isEditMode ? (
+            <>
+              <ToolbarButton
+                title={t("floor_plan_background_upload_tooltip")}
+                onClick={() => backgroundImageInputRef.current?.click()}
+              >
+                <ImagePlus className="h-4 w-4" />
+              </ToolbarButton>
+              <ToolbarButton title={t("floor_plan_background_use_sample_tooltip")} onClick={() => void useSampleFloorPlanBackground()}>
+                <ImageIconLucide className="h-4 w-4" />
+              </ToolbarButton>
+            </>
+          ) : null}
           {showEditToolButtons ? (
             <>
               <div className="mx-1 h-6 w-px bg-gray-200" />
@@ -3673,6 +3832,7 @@ export default function FloorPlanEditor({ onViewModeChange }: FloorPlanEditorPro
                 setSelection(null);
                 setWallPreview(null);
                 setRoomPreview(null);
+                setBackgroundImageEl(null);
                 wallDrawRef.current = null;
                 roomDrawRef.current = null;
                 dragSelectionRef.current = null;
@@ -3762,6 +3922,18 @@ export default function FloorPlanEditor({ onViewModeChange }: FloorPlanEditorPro
                   shadowOpacity={0.04}
                   listening={false}
                 />
+
+                {backgroundImageEl && backgroundLayout ? (
+                  <KonvaImage
+                    image={backgroundImageEl}
+                    x={backgroundLayout.offsetX}
+                    y={backgroundLayout.offsetY}
+                    width={backgroundLayout.drawW}
+                    height={backgroundLayout.drawH}
+                    listening={false}
+                    opacity={0.98}
+                  />
+                ) : null}
 
                 {gridLines.map((line) => (
                   <Line
