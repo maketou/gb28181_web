@@ -140,7 +140,7 @@
   "floor_plan_export_tooltip": "Export layout JSON backup",
   "floor_plan_import_tooltip": "Restore layout from JSON file",
   "floor_plan_background_section": "Custom floor plan image",
-  "floor_plan_background_hint": "Upload JPG, PNG, WebP, SVG, etc. as the canvas background. The image is shown fully inside the world area without stretching; walls and cameras draw on top. You can also put files under public/floor-plan/ and use the sample action to verify the path. Exported JSON includes the background (local uploads may be large).",
+  "floor_plan_background_hint": "Upload JPG, PNG, WebP, SVG, etc. as the canvas background. The image is shown fully inside the world area without stretching; walls and cameras draw on top. When a background is set, the helper grid is hidden (walls and markers remain). The canvas uses your screen pixel ratio for sharper rendering. You can also put files under public/floor-plan/ and use the sample action to verify the path. Exported JSON includes the background (local uploads may be large).",
   "floor_plan_background_upload": "Upload image",
   "floor_plan_background_upload_tooltip": "Upload a custom floor plan background",
   "floor_plan_background_use_sample": "Use sample",

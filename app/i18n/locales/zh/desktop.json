@@ -140,7 +140,7 @@
   "floor_plan_export_tooltip": "导出布局 JSON 备份",
   "floor_plan_import_tooltip": "从 JSON 文件恢复布局",
   "floor_plan_background_section": "自定义平面图底图",
-  "floor_plan_background_hint": "上传 JPG、PNG、WebP、SVG 等常见图片作为画布底图；图片会完整显示在世界区域内（不拉伸变形），墙线与摄像头叠在上方。也可将图片放到站点 public/floor-plan/ 下，使用「示例」验证路径。导出 JSON 会包含底图（若使用本地上传可能体积较大）。",
+  "floor_plan_background_hint": "上传 JPG、PNG、WebP、SVG 等常见图片作为画布底图；图片会完整显示在世界区域内（不拉伸变形），墙线与摄像头叠在上方。有底图时不再显示辅助网格，仅保留墙线与探头。画布会按屏幕像素密度渲染以减轻模糊。也可将图片放到站点 public/floor-plan/ 下，使用「示例」验证路径。导出 JSON 会包含底图（若使用本地上传可能体积较大）。",
   "floor_plan_background_upload": "上传图片",
   "floor_plan_background_upload_tooltip": "上传自定义平面图底图",
   "floor_plan_background_use_sample": "使用示例图",

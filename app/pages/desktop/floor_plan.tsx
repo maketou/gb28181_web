@@ -3346,6 +3346,24 @@ export default function FloorPlanEditor({ onViewModeChange }: FloorPlanEditorPro
     return lines;
   }, [plan.view.scale, plan.view.x, plan.view.y, viewportSize.height, viewportSize.width]);
 
+  /**
+   * 为什么有自定义底图时不再画网格：
+   * 高清平面图本身已是空间参考，叠加网格既遮挡细节又增加绘制量；无图时仍保留网格辅助徒手对齐。
+   */
+  const showWorldGrid = plan.background == null;
+
+  const [canvasPixelRatio, setCanvasPixelRatio] = useState(1);
+  useEffect(() => {
+    const sync = () => setCanvasPixelRatio(Math.min(window.devicePixelRatio || 1, 3));
+    sync();
+    window.addEventListener("resize", sync);
+    window.visualViewport?.addEventListener("resize", sync);
+    return () => {
+      window.removeEventListener("resize", sync);
+      window.visualViewport?.removeEventListener("resize", sync);
+    };
+  }, []);
+
   void historyVersion;
 
   /**
@@ -3900,6 +3918,7 @@ export default function FloorPlanEditor({ onViewModeChange }: FloorPlanEditorPro
           <Stage
             width={viewportSize.width}
             height={viewportSize.height}
+            pixelRatio={canvasPixelRatio}
             onPointerDown={handleStagePointerDown}
             onContextMenu={(event) => {
               event.evt.preventDefault();
@@ -3917,9 +3936,9 @@ export default function FloorPlanEditor({ onViewModeChange }: FloorPlanEditorPro
                   width={FLOOR_PLAN_WORLD_WIDTH}
                   height={FLOOR_PLAN_WORLD_HEIGHT}
                   fill="#ffffff"
-                  cornerRadius={20}
-                  shadowBlur={6}
-                  shadowOpacity={0.04}
+                  cornerRadius={plan.background ? 0 : 20}
+                  shadowBlur={plan.background ? 0 : 6}
+                  shadowOpacity={plan.background ? 0 : 0.04}
                   listening={false}
                 />
 
@@ -3931,19 +3950,23 @@ export default function FloorPlanEditor({ onViewModeChange }: FloorPlanEditorPro
                     width={backgroundLayout.drawW}
                     height={backgroundLayout.drawH}
                     listening={false}
-                    opacity={0.98}
+                    opacity={1}
+                    perfectDrawEnabled={false}
+                    imageSmoothingEnabled
                   />
                 ) : null}
 
-                {gridLines.map((line) => (
-                  <Line
-                    key={line.key}
-                    points={line.points}
-                    stroke={line.major ? "#d9e0ea" : "#edf2f7"}
-                    strokeWidth={1}
-                    listening={false}
-                  />
-                ))}
+                {showWorldGrid
+                  ? gridLines.map((line) => (
+                      <Line
+                        key={line.key}
+                        points={line.points}
+                        stroke={line.major ? "#d9e0ea" : "#edf2f7"}
+                        strokeWidth={1}
+                        listening={false}
+                      />
+                    ))
+                  : null}
 
                 {alignmentGuides.vertical.map((x) => (
                   <Line
