@@ -1,9 +1,16 @@
-import { GET } from "~/service/config/http";
+import { DELETE, GET, POST } from "~/service/config/http";
 import type {
+  ControlPlaybackSessionParams,
+  ControlPlaybackSessionResponse,
+  CreatePlaybackSessionParams,
+  CreatePlaybackSessionResponse,
   FindRecordingsParams,
   FindRecordingsResponse,
   MonthlyParams,
   MonthlyResponse,
+  PlaybackCapabilitiesResponse,
+  QueryPlaybackFilesParams,
+  QueryPlaybackFilesResponse,
   TimelineParams,
   TimelineResponse,
 } from "./state";
@@ -12,6 +19,7 @@ import { getToken } from "../user/user";
 export const findRecordingsKey = "findRecordings";
 export const timelineKey = "recordingsTimeline";
 export const monthlyKey = "recordingsMonthly";
+export const gbPlaybackCapabilitiesKey = "gbPlaybackCapabilities";
 
 export async function FindRecordings(params: FindRecordingsParams) {
   return await GET<FindRecordingsResponse>("/recordings", params);
@@ -75,4 +83,24 @@ export function GetRecordingMp4Url(path: string, token?: string): string {
 
 export function GetRecordingDownloadUrl(recordingId: number): string {
   return `/recordings/${recordingId}/download`;
+}
+
+export async function QueryPlaybackFiles(params: QueryPlaybackFilesParams) {
+  return await POST<QueryPlaybackFilesResponse>("/gb28181/playback/files/query", params);
+}
+
+export async function CreatePlaybackSession(params: CreatePlaybackSessionParams) {
+  return await POST<CreatePlaybackSessionResponse>("/gb28181/playback/sessions", params);
+}
+
+export async function ControlPlaybackSession(sessionId: string, params: ControlPlaybackSessionParams) {
+  return await POST<ControlPlaybackSessionResponse>(`/gb28181/playback/sessions/${sessionId}/control`, params);
+}
+
+export async function DeletePlaybackSession(sessionId: string) {
+  return await DELETE(`/gb28181/playback/sessions/${sessionId}`);
+}
+
+export async function GetPlaybackCapabilities(deviceId: string) {
+  return await GET<PlaybackCapabilitiesResponse>(`/gb28181/devices/${deviceId}/playback/capabilities`);
 }

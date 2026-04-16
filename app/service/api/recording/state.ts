@@ -129,3 +129,65 @@ export type MonthlyResponse = {
   /** 位图字符串，如 "10101010..." 第 1 天有录像则第 1 位为 1 */
   has_video: string;
 };
+
+export type QueryPlaybackFilesParams = {
+  deviceId?: string;
+  channelId: string;
+  startTime: number;
+  endTime: number;
+  page?: number;
+  size?: number;
+};
+
+export type PlaybackFile = {
+  fileId: string;
+  beginTime: number;
+  endTime: number;
+  name: string;
+  size: number;
+};
+
+export type QueryPlaybackFilesResponse = {
+  files: PlaybackFile[];
+  total: number;
+};
+
+export type CreatePlaybackSessionParams = {
+  deviceId?: string;
+  channelId: string;
+  fileId?: string;
+  startTime: number;
+  endTime: number;
+};
+
+export type CreatePlaybackSessionResponse = {
+  sessionId: string;
+  streamUrl: string;
+  transport: string;
+  ssrc: string;
+  startTime: number;
+};
+
+export type PlaybackControlAction = "PAUSE" | "RESUME" | "SEEK" | "SCALE" | "TEARDOWN";
+
+export type ControlPlaybackSessionParams = {
+  action: PlaybackControlAction;
+  rangeStart?: number;
+  scale?: number;
+};
+
+export type ControlPlaybackSessionResponse = {
+  sessionId: string;
+  status: string;
+  action: PlaybackControlAction;
+  rangeStart?: number;
+  scale?: number;
+};
+
+export type PlaybackCapabilitiesResponse = {
+  supportsSeek: boolean;
+  supportsPause: boolean;
+  supportsResume: boolean;
+  supportsScale: boolean;
+  scaleRange: number[];
+};

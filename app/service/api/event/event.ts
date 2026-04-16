@@ -1,5 +1,6 @@
 import { GET } from "~/service/config/http";
 import type { Event, FindEventsParams, FindEventsResponse } from "./state";
+import { getToken } from "../user/user";
 
 export const findEventsKey = "findEvents";
 
@@ -12,7 +13,11 @@ export function GetEventImageUrl(imagePath: string): string {
   if (imagePath.startsWith("http")) {
     return imagePath;
   }
-  return `${window.location.origin}/events/image/${imagePath}`;
+  const base = `${window.location.origin}/events/image/${imagePath}`;
+  const token = getToken()?.trim();
+  if (!token) return base;
+  const authToken = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
+  return `${base}?token=${encodeURIComponent(authToken)}`;
 }
 
 export type LatestChannelEvent = {

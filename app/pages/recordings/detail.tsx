@@ -26,10 +26,16 @@ import {
 } from "~/service/api/device/device";
 import { FindEvents, findEventsKey, GetEventImageUrl } from "~/service/api/event/event";
 import {
+  ControlPlaybackSession,
+  CreatePlaybackSession,
+  DeletePlaybackSession,
   FindRecordings,
   findRecordingsKey,
+  gbPlaybackCapabilitiesKey,
+  GetPlaybackCapabilities,
   GetMonthly,
   monthlyKey,
+  QueryPlaybackFiles,
 } from "~/service/api/recording/recording";
 import type { Recording } from "~/service/api/recording/state";
 import {
@@ -84,6 +90,7 @@ export default function RecordingDetailView() {
   const [volume, setVolume] = useState(0.8);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [playbackSessionId, setPlaybackSessionId] = useState<string | null>(null);
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [segmentIssues, setSegmentIssues] = useState<SegmentIssue[]>([]);
   const [hideSegmentIssueNotice, setHideSegmentIssueNotice] = useState(false);
@@ -118,18 +125,33 @@ export default function RecordingDetailView() {
 
   const allChannels = useMemo(() => {
     if (!channelsData?.data?.items) return [];
-    const channels: Array<{ id: string; name: string; deviceName: string }> = [];
+    const channels: Array<{ id: string; name: string; deviceName: string; deviceId: string }> = [];
     for (const device of channelsData.data.items) {
       for (const channel of device.children || []) {
         channels.push({
           id: channel.id,
           name: channel.name || channel.channel_id || channel.id,
           deviceName: device.name || device.device_id,
+          deviceId: device.id || device.device_id,
         });
       }
     }
     return channels;
   }, [channelsData]);
+
+  const selectedChannel = useMemo(
+    () => allChannels.find((item) => item.id === channelId) ?? null,
+    [allChannels, channelId],
+  );
+  const selectedDeviceId = selectedChannel?.deviceId ?? "";
+
+  const { data: capabilitiesData } = useQuery({
+    queryKey: [gbPlaybackCapabilitiesKey, selectedDeviceId],
+    queryFn: () => GetPlaybackCapabilities(selectedDeviceId),
+    enabled: !!selectedDeviceId,
+    staleTime: 60_000,
+  });
+  const playbackCapabilities = capabilitiesData?.data;
 
   useEffect(() => {
     if (!channelId && allChannels.length > 0) {
@@ -225,7 +247,16 @@ export default function RecordingDetailView() {
     setSegmentIssues([]);
     setPlayerError(null);
     setHideSegmentIssueNotice(false);
+    setPlaybackSessionId(null);
   }, [channelId, dayStartMs, dayEndMs]);
+
+  useEffect(() => {
+    return () => {
+      if (playbackSessionId) {
+        void DeletePlaybackSession(playbackSessionId).catch(() => undefined);
+      }
+    };
+  }, [playbackSessionId]);
 
   useEffect(() => {
     if (segments.length === 0) {
@@ -261,7 +292,13 @@ export default function RecordingDetailView() {
 
   useEffect(() => {
     playerRef.current?.setPlaybackRate(playbackRate);
-  }, [playbackRate]);
+    if (playbackSessionId && playbackCapabilities?.supportsScale !== false) {
+      void ControlPlaybackSession(playbackSessionId, {
+        action: "SCALE",
+        scale: playbackRate,
+      }).catch(() => undefined);
+    }
+  }, [playbackRate, playbackCapabilities, playbackSessionId]);
 
   useEffect(() => {
     playerRef.current?.setMuted(isMuted);
@@ -291,8 +328,14 @@ export default function RecordingDetailView() {
       setCurrentContinuousSec(located.continuousSeconds);
       setPlayerError(null);
       playerRef.current?.seek(located.continuousSeconds, autoPlay);
+      if (playbackSessionId && playbackCapabilities?.supportsSeek !== false) {
+        void ControlPlaybackSession(playbackSessionId, {
+          action: "SEEK",
+          rangeStart: located.absoluteMs,
+        }).catch(() => undefined);
+      }
     },
-    [segments],
+    [segments, playbackCapabilities, playbackSessionId],
   );
 
   const handlePlayPause = useCallback(() => {
@@ -301,16 +344,48 @@ export default function RecordingDetailView() {
 
     if (player.isPlaying()) {
       player.pause();
+      if (playbackSessionId && playbackCapabilities?.supportsPause !== false) {
+        void ControlPlaybackSession(playbackSessionId, { action: "PAUSE" }).catch(() => undefined);
+      }
       return;
     }
 
     if (player.getCurrentTime() > 0 || currentAbsoluteMs !== null) {
       player.resume();
+      if (playbackSessionId && playbackCapabilities?.supportsResume !== false) {
+        void ControlPlaybackSession(playbackSessionId, { action: "RESUME" }).catch(() => undefined);
+      }
       return;
     }
 
-    seekToAbsolute(segments[0].startTime, true);
-  }, [currentAbsoluteMs, seekToAbsolute, segments]);
+    void (async () => {
+      try {
+        if (!playbackSessionId) {
+          await QueryPlaybackFiles({
+            deviceId: selectedDeviceId,
+            channelId,
+            startTime: dayStartMs,
+            endTime: dayEndMs,
+            page: 1,
+            size: 200,
+          });
+          const created = await CreatePlaybackSession({
+            deviceId: selectedDeviceId,
+            channelId,
+            startTime: dayStartMs,
+            endTime: dayEndMs,
+          });
+          setPlaybackSessionId(created.data.sessionId);
+        } else if (playbackCapabilities?.supportsResume !== false) {
+          await ControlPlaybackSession(playbackSessionId, { action: "RESUME" });
+        }
+      } catch {
+        setPlayerError("回放会话创建失败，请稍后重试。");
+      } finally {
+        seekToAbsolute(segments[0].startTime, true);
+      }
+    })();
+  }, [channelId, currentAbsoluteMs, dayEndMs, dayStartMs, playbackCapabilities, playbackSessionId, seekToAbsolute, segments, selectedDeviceId]);
 
   const skipSeconds = useCallback(
     (deltaSeconds: number) => {
@@ -335,17 +410,26 @@ export default function RecordingDetailView() {
 
   const handleChannelChange = useCallback(
     (value: string) => {
+      if (playbackSessionId) {
+        void ControlPlaybackSession(playbackSessionId, { action: "TEARDOWN" }).catch(() => undefined);
+        void DeletePlaybackSession(playbackSessionId).catch(() => undefined);
+      }
       setChannelId(value);
       setCurrentAbsoluteMs(null);
       setCurrentContinuousSec(0);
+      setPlaybackSessionId(null);
       updateUrl(value, selectedDate);
     },
-    [selectedDate, updateUrl],
+    [playbackSessionId, selectedDate, updateUrl],
   );
 
   const handleDateChange = useCallback(
     (value: dayjs.Dayjs | null) => {
       if (!value) return;
+      if (playbackSessionId) {
+        void ControlPlaybackSession(playbackSessionId, { action: "TEARDOWN" }).catch(() => undefined);
+        void DeletePlaybackSession(playbackSessionId).catch(() => undefined);
+      }
       const nextDate = value.toDate();
       nextDate.setHours(0, 0, 0, 0);
       setSelectedDate(nextDate);
@@ -353,9 +437,10 @@ export default function RecordingDetailView() {
       setDatePickerOpen(false);
       setCurrentAbsoluteMs(null);
       setCurrentContinuousSec(0);
+      setPlaybackSessionId(null);
       updateUrl(channelId, nextDate);
     },
-    [channelId, updateUrl],
+    [channelId, playbackSessionId, updateUrl],
   );
 
   const goToPrevDay = useCallback(() => {
@@ -624,6 +709,7 @@ export default function RecordingDetailView() {
                   <Select
                     value={playbackRate}
                     onChange={(value) => setPlaybackRate(Number(value))}
+                    disabled={segments.length === 0 || playbackCapabilities?.supportsScale === false}
                     options={[
                       { value: 0.5, label: "0.5x" },
                       { value: 1, label: "1x" },
