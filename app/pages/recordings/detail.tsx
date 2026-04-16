@@ -251,9 +251,13 @@ export default function RecordingDetailView() {
   }, [channelId, dayStartMs, dayEndMs]);
 
   useEffect(() => {
+    // 为什么在组件销毁时兜底释放会话：
+    // 浏览器关闭/路由切换并不总能触发业务按钮逻辑，统一在卸载阶段兜底可避免会话泄漏。
     return () => {
       if (playbackSessionId) {
-        void DeletePlaybackSession(playbackSessionId).catch(() => undefined);
+        void DeletePlaybackSession(playbackSessionId).catch((error) => {
+          logPlaybackSessionIssue("delete session on unmount", error);
+        });
       }
     };
   }, [playbackSessionId]);
@@ -296,7 +300,9 @@ export default function RecordingDetailView() {
       void ControlPlaybackSession(playbackSessionId, {
         action: "SCALE",
         scale: playbackRate,
-      }).catch(() => undefined);
+      }).catch((error) => {
+        logPlaybackSessionIssue("scale control failed", error);
+      });
     }
   }, [playbackRate, playbackCapabilities, playbackSessionId]);
 
@@ -332,7 +338,9 @@ export default function RecordingDetailView() {
         void ControlPlaybackSession(playbackSessionId, {
           action: "SEEK",
           rangeStart: located.absoluteMs,
-        }).catch(() => undefined);
+        }).catch((error) => {
+          logPlaybackSessionIssue("seek control failed", error);
+        });
       }
     },
     [segments, playbackCapabilities, playbackSessionId],
@@ -345,7 +353,9 @@ export default function RecordingDetailView() {
     if (player.isPlaying()) {
       player.pause();
       if (playbackSessionId && playbackCapabilities?.supportsPause !== false) {
-        void ControlPlaybackSession(playbackSessionId, { action: "PAUSE" }).catch(() => undefined);
+        void ControlPlaybackSession(playbackSessionId, { action: "PAUSE" }).catch((error) => {
+          logPlaybackSessionIssue("pause control failed", error);
+        });
       }
       return;
     }
@@ -353,11 +363,15 @@ export default function RecordingDetailView() {
     if (player.getCurrentTime() > 0 || currentAbsoluteMs !== null) {
       player.resume();
       if (playbackSessionId && playbackCapabilities?.supportsResume !== false) {
-        void ControlPlaybackSession(playbackSessionId, { action: "RESUME" }).catch(() => undefined);
+        void ControlPlaybackSession(playbackSessionId, { action: "RESUME" }).catch((error) => {
+          logPlaybackSessionIssue("resume control failed", error);
+        });
       }
       return;
     }
 
+    // 为什么首次播放前主动走“查询 + 建会话”：
+    // 先确认时间段有可用文件再建会话，可把“无录像”和“会话失败”这两类问题分离，便于定位。
     void (async () => {
       try {
         if (!playbackSessionId) {
@@ -411,8 +425,14 @@ export default function RecordingDetailView() {
   const handleChannelChange = useCallback(
     (value: string) => {
       if (playbackSessionId) {
-        void ControlPlaybackSession(playbackSessionId, { action: "TEARDOWN" }).catch(() => undefined);
-        void DeletePlaybackSession(playbackSessionId).catch(() => undefined);
+        // 为什么切换通道先 teardown：
+        // 避免旧通道会话继续占用后端状态，导致新通道控制指令串线。
+        void ControlPlaybackSession(playbackSessionId, { action: "TEARDOWN" }).catch((error) => {
+          logPlaybackSessionIssue("teardown on channel change failed", error);
+        });
+        void DeletePlaybackSession(playbackSessionId).catch((error) => {
+          logPlaybackSessionIssue("delete on channel change failed", error);
+        });
       }
       setChannelId(value);
       setCurrentAbsoluteMs(null);
@@ -427,8 +447,14 @@ export default function RecordingDetailView() {
     (value: dayjs.Dayjs | null) => {
       if (!value) return;
       if (playbackSessionId) {
-        void ControlPlaybackSession(playbackSessionId, { action: "TEARDOWN" }).catch(() => undefined);
-        void DeletePlaybackSession(playbackSessionId).catch(() => undefined);
+        // 为什么切日期也要关闭旧会话：
+        // 回放时间范围变化后旧会话语义已失效，强制重建能避免播放位置与时间轴错位。
+        void ControlPlaybackSession(playbackSessionId, { action: "TEARDOWN" }).catch((error) => {
+          logPlaybackSessionIssue("teardown on date change failed", error);
+        });
+        void DeletePlaybackSession(playbackSessionId).catch((error) => {
+          logPlaybackSessionIssue("delete on date change failed", error);
+        });
       }
       const nextDate = value.toDate();
       nextDate.setHours(0, 0, 0, 0);
@@ -1074,4 +1100,13 @@ function buildEventSubtitle(event: Pick<NormalizedEventSnapshot, "labels" | "cou
   const scoreText = event.maxScore > 0 ? ` · 最高置信度 ${Math.round(event.maxScore * 100)}%` : "";
   const countText = event.count > 1 ? ` · ${event.count} 个目标` : "";
   return `${labelText || "告警"}${countText}${scoreText}`;
+}
+
+/**
+ * 为什么统一记录会话控制异常：
+ * 回放控制请求分散在多个交互点（播放、拖拽、切换），统一日志入口能让排障时快速还原动作链路。
+ */
+function logPlaybackSessionIssue(action: string, error: unknown) {
+  // eslint-disable-next-line no-console
+  console.warn(`[playback-session] ${action}`, error);
 }

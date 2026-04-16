@@ -8,6 +8,10 @@ export async function FindEvents(params: FindEventsParams) {
   return await GET<FindEventsResponse>("/events", params);
 }
 
+/**
+ * 为什么在图片 URL 层补 token：
+ * 图片请求不是统一 axios 流程，后端开启鉴权后若不在 URL 注入 token 会出现“列表可见但图片 401”的割裂体验。
+ */
 export function GetEventImageUrl(imagePath: string): string {
   if (!imagePath) return imagePath;
   if (imagePath.startsWith("http")) {
