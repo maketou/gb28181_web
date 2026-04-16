@@ -8,7 +8,7 @@ const WEB_BASE = import.meta.env.BASE_URL.endsWith("/") ? import.meta.env.BASE_U
  * 为什么提供内置示例路径：
  * 后端未就绪时同事可把图放进 `public/floor-plan/`，用户一键套用验证流程；后续上传接口只需返回可访问 URL 并写入 `background.src`。
  */
-export const FLOOR_PLAN_SAMPLE_BACKGROUND_SRC = `${WEB_BASE}floor-plan/sample-floor.svg`;
+export const FLOOR_PLAN_SAMPLE_BACKGROUND_SRC = `${WEB_BASE}floor-plan/floor_main.png`;
 
 const ACCEPT_IMAGE =
   "image/jpeg,image/png,image/webp,image/gif,image/svg+xml,image/bmp,image/avif";
